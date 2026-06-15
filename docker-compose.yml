@@ -1,0 +1,145 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: etl_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: etl_user
+      POSTGRES_PASSWORD: etl_password
+      POSTGRES_DB: etl_sales_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./sql:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U etl_user -d etl_sales_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redpanda:
+    image: redpandadata/redpanda:v24.2.8
+    container_name: etl_redpanda
+    restart: always
+    command:
+      - redpanda
+      - start
+      - --overprovisioned
+      - --smp
+      - "1"
+      - --memory
+      - 512M
+      - --reserve-memory
+      - 0M
+      - --node-id
+      - "0"
+      - --check=false
+      - --kafka-addr
+      - PLAINTEXT://0.0.0.0:9092,OUTSIDE://0.0.0.0:19092
+      - --advertise-kafka-addr
+      - PLAINTEXT://redpanda:9092,OUTSIDE://localhost:19092
+    ports:
+      - "19092:19092"
+      - "9644:9644"
+
+  airflow-init:
+    image: apache/airflow:2.10.4
+    container_name: etl_airflow_init
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://etl_user:etl_password@postgres:5432/etl_sales_db
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__WEBSERVER__SECRET_KEY: etl_project_secret_key
+
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: etl_sales_db
+      POSTGRES_USER: etl_user
+      POSTGRES_PASSWORD: etl_password
+      DATABASE_URL: postgresql://etl_user:etl_password@postgres:5432/etl_sales_db
+
+      _AIRFLOW_WWW_USER_USERNAME: admin
+      _AIRFLOW_WWW_USER_PASSWORD: admin
+      _PIP_ADDITIONAL_REQUIREMENTS: faker==33.1.0
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./scripts:/opt/airflow/scripts
+      - ./sql:/opt/airflow/sql
+      - ./data:/opt/airflow/data
+      - ./.env:/opt/airflow/.env
+    command: >
+      bash -c "airflow db migrate &&
+               (airflow users create
+               --username admin
+               --password admin
+               --firstname Alhousseynou
+               --lastname Ndiaye
+               --role Admin
+               --email admin@example.com || true)"
+
+  airflow-webserver:
+    image: apache/airflow:2.10.4
+    container_name: etl_airflow_webserver
+    restart: always
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://etl_user:etl_password@postgres:5432/etl_sales_db
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__WEBSERVER__SECRET_KEY: etl_project_secret_key
+
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: etl_sales_db
+      POSTGRES_USER: etl_user
+      POSTGRES_PASSWORD: etl_password
+      DATABASE_URL: postgresql://etl_user:etl_password@postgres:5432/etl_sales_db
+
+      _PIP_ADDITIONAL_REQUIREMENTS: faker==33.1.0
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./scripts:/opt/airflow/scripts
+      - ./sql:/opt/airflow/sql
+      - ./data:/opt/airflow/data
+      - ./.env:/opt/airflow/.env
+    command: webserver
+
+  airflow-scheduler:
+    image: apache/airflow:2.10.4
+    container_name: etl_airflow_scheduler
+    restart: always
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://etl_user:etl_password@postgres:5432/etl_sales_db
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__WEBSERVER__SECRET_KEY: etl_project_secret_key
+
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: etl_sales_db
+      POSTGRES_USER: etl_user
+      POSTGRES_PASSWORD: etl_password
+      DATABASE_URL: postgresql://etl_user:etl_password@postgres:5432/etl_sales_db
+
+      _PIP_ADDITIONAL_REQUIREMENTS: faker==33.1.0
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./scripts:/opt/airflow/scripts
+      - ./sql:/opt/airflow/sql
+      - ./data:/opt/airflow/data
+      - ./.env:/opt/airflow/.env
+    command: scheduler
+
+volumes:
+  postgres_data:
