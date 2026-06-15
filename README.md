@@ -232,9 +232,6 @@ Configuration:
 
 Access the Airflow UI at **http://localhost:8080**
 
-copier en un seul clic18:39Claude a répondu : Voici ton README complet, prêt à copier :Check available skillsCheck available skillsVoici ton README complet, prêt à copier :
-markdown# Real-Time Sales & Inventory Analytics Pipeline
-
 An end-to-end data pipeline combining **batch ETL**, **SQL transformations**, **Apache Airflow orchestration**, **Kafka-compatible streaming** and a **live Streamlit dashboard** — built for a retail analytics use case.
 
 ---
