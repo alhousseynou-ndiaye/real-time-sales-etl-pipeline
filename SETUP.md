@@ -1,19 +1,30 @@
-# SETUP.md — Real-Time Sales & Inventory Analytics Pipeline
+# SETUP Guide
 
-## 1. Prerequisites
-
-Before running the project, make sure the following tools are installed:
-
-- Docker Desktop
-- Python 3.12+
-- Git
-- Visual Studio Code or another code editor
-
-> The project was developed and tested on **Windows** using **PowerShell**.
+This guide explains how to run the Real-Time Sales & Inventory Analytics Pipeline from scratch.
 
 ---
 
-## 2. Clone or Open the Project
+## 1. Prerequisites
+
+Make sure the following tools are installed:
+
+- Python 3.11 or later
+- Docker Desktop
+- Git
+- Java installed for PySpark
+- Visual Studio Code or another code editor
+
+To check Java:
+
+```powershell
+java -version
+```
+
+If Java is installed, the command should display a Java version.
+
+---
+
+## 2. Go to the Project Folder
 
 ```powershell
 cd C:\Users\DYNABOOK\etl-final-project
@@ -21,22 +32,27 @@ cd C:\Users\DYNABOOK\etl-final-project
 
 ---
 
-## 3. Create the Python Virtual Environment
-
-```powershell
-python -m venv .venv
-```
-
-Activate it:
+## 3. Activate the Python Virtual Environment
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
 ```
 
-If PowerShell blocks the activation:
+You should see:
+
+```txt
+(.venv) PS C:\Users\DYNABOOK\etl-final-project>
+```
+
+If PowerShell blocks the activation script, run:
 
 ```powershell
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned
+```
+
+Then activate again:
+
+```powershell
 .\.venv\Scripts\Activate.ps1
 ```
 
@@ -44,17 +60,33 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 
 ## 4. Install Python Dependencies
 
+If dependencies are not installed yet, run:
+
 ```powershell
 pip install -r requirements.txt
 ```
 
-Main libraries: `pandas`, `psycopg2-binary`, `python-dotenv`, `faker`, `sqlalchemy`, `confluent-kafka`, `streamlit`, `plotly`
+Important dependencies include:
+
+```txt
+pandas
+psycopg2-binary
+python-dotenv
+faker
+sqlalchemy
+confluent-kafka
+streamlit
+plotly
+pyspark
+```
 
 ---
 
 ## 5. Environment Variables
 
-Create a `.env` file at the root of the project:
+The project uses a `.env` file.
+
+Example:
 
 ```env
 POSTGRES_HOST=localhost
@@ -73,92 +105,153 @@ STREAM_EVENT_COUNT=100
 STREAM_DELAY_SECONDS=1
 ```
 
-> **Note:**
-> - From the **host machine** → PostgreSQL on `localhost:5433`, Kafka on `localhost:19092`
-> - **Inside Docker containers** → PostgreSQL on `postgres:5432`
-
 ---
 
-## 6. Start Docker Services
+## 6. Start Docker Containers
+
+Open Docker Desktop first.
+
+Then run:
 
 ```powershell
 docker compose up -d
+```
+
+Check that the containers are running:
+
+```powershell
 docker ps
 ```
 
-Expected containers:
+You should see containers such as:
 
-| Container | Status |
-|---|---|
-| `etl_postgres` | running |
-| `etl_redpanda` | running |
-| `etl_airflow_webserver` | running |
-| `etl_airflow_scheduler` | running |
-| `etl_airflow_init` | exited ✅ (normal) |
+```txt
+etl_postgres
+etl_redpanda
+etl_airflow-webserver
+etl_airflow-scheduler
+```
 
 ---
 
-## 7. Create the Kafka Topic
+## 7. Create Kafka Topic
+
+Create the Kafka topic if it does not already exist:
 
 ```powershell
 docker exec -it etl_redpanda rpk topic create sales_stream
 ```
 
-Verify:
+Verify the topic:
 
 ```powershell
 docker exec -it etl_redpanda rpk topic list
-# Expected: sales_stream
 ```
 
-> If the topic already exists, that's fine — continue.
+You should see:
+
+```txt
+sales_stream
+```
+
+If the topic already exists, this is not a problem.
 
 ---
 
 ## 8. Test PostgreSQL Connection
 
+Run:
+
 ```powershell
-python scripts\test_db_connection.py
+python scripts/test_db_connection.py
+```
+
+If the connection is successful, the script should print database information.
+
+---
+
+## 9. Run the Full Batch Pipeline with PySpark
+
+Run:
+
+```powershell
+python scripts/run_batch_pipeline.py
+```
+
+This command executes:
+
+```txt
+1. Generate synthetic CSV data
+2. Load raw CSV data into PostgreSQL
+3. Run PySpark transformations
+4. Load staging and analytics tables into PostgreSQL
+5. Print final table counts
+```
+
+Expected result:
+
+```txt
+Batch pipeline completed successfully with PySpark.
+```
+
+Example final counts:
+
+```txt
+raw.products: 25
+raw.stores: 10
+raw.sales_batch: 1000
+staging.sales_clean: 1000
+analytics.daily_sales_summary: around 300
+analytics.product_performance: 25
+```
+
+Windows may display Spark warnings such as:
+
+```txt
+Did not find winutils.exe
+Unable to load native-hadoop library
+```
+
+These warnings are not blocking in this local setup if the Spark job finishes successfully.
+
+---
+
+## 10. Run Only the PySpark Transformations
+
+If the CSV files already exist and raw data is already loaded, you can run only the Spark transformation step:
+
+```powershell
+python scripts/spark_transformations.py
+```
+
+This script:
+
+```txt
+reads products.csv, stores.csv and sales_batch.csv
+joins sales with products and stores
+creates staging.sales_clean
+creates analytics.daily_sales_summary
+creates analytics.product_performance
+loads results into PostgreSQL
+```
+
+Expected result:
+
+```txt
+Spark transformations loaded into PostgreSQL successfully.
 ```
 
 ---
 
-## 9. Run the Batch Pipeline
+## 11. Validate PostgreSQL Data
 
-```powershell
-python scripts\run_batch_pipeline.py
-```
-
-This runs the full batch flow:
-
-```text
-generate_batch_data.py
-        ↓
-load_batch_to_postgres.py
-        ↓
-02_staging_to_clean.sql
-        ↓
-03_build_analytics.sql
-```
-
-Expected output:
-
-| Table | Rows |
-|---|---|
-| `raw.products` | 25 |
-| `raw.stores` | 10 |
-| `raw.sales_batch` | 1 000 |
-| `staging.sales_clean` | 1 000 |
-| `analytics.daily_sales_summary` | ~290–300 |
-| `analytics.product_performance` | 25 |
-
----
-
-## 10. Validate PostgreSQL Tables
+Open PostgreSQL inside the container:
 
 ```powershell
 docker exec -it etl_postgres psql -U etl_user -d etl_sales_db
 ```
+
+Run:
 
 ```sql
 SELECT COUNT(*) FROM raw.products;
@@ -167,163 +260,337 @@ SELECT COUNT(*) FROM raw.sales_batch;
 SELECT COUNT(*) FROM staging.sales_clean;
 SELECT COUNT(*) FROM analytics.daily_sales_summary;
 SELECT COUNT(*) FROM analytics.product_performance;
+```
+
+Exit PostgreSQL:
+
+```sql
 \q
 ```
 
+You can also validate the schema:
+
+```powershell
+docker exec -it etl_postgres psql -U etl_user -d etl_sales_db -c "SELECT column_name, data_type FROM information_schema.columns WHERE table_schema='analytics' AND table_name='daily_sales_summary' ORDER BY ordinal_position;"
+```
+
 ---
 
-## 11. Run Airflow
+## 12. Launch Airflow
 
-Open **http://localhost:8080**
+Airflow is started with Docker Compose.
+
+Airflow URL:
+
+```txt
+http://localhost:8080
+```
+
+Credentials:
+
+```txt
 username: admin
 password: admin
-
-DAG: `sales_batch_etl_pipeline`
-
-```text
-generate_batch_data → load_batch_to_postgres → transform_raw_to_staging → build_analytics
 ```
 
-Steps: activate the DAG → click **Trigger DAG** → wait until all tasks are green.
+In Airflow:
 
----
+```txt
+DAGs
+→ sales_batch_etl_pipeline
+→ Trigger DAG
+```
 
-## 12. Run the Streaming Pipeline
+The DAG should show successful tasks in green.
 
-Open **two terminals**, both with the virtual environment activated.
-
-**Terminal 1 — Consumer:**
+To restart Airflow:
 
 ```powershell
-cd C:\Users\DYNABOOK\etl-final-project
-.\.venv\Scripts\Activate.ps1
-python scripts\kafka_consumer.py
+docker compose restart airflow-webserver airflow-scheduler
 ```
 
-**Terminal 2 — Producer:**
+To view logs:
 
 ```powershell
-cd C:\Users\DYNABOOK\etl-final-project
-.\.venv\Scripts\Activate.ps1
-python scripts\kafka_producer.py
+docker compose logs -f airflow-webserver
 ```
 
-Expected flow:
+Scheduler logs:
 
-```text
-Producer → sales_stream topic → Consumer → raw.sales_stream → analytics.realtime_sales_metrics
+```powershell
+docker compose logs -f airflow-scheduler
 ```
 
 ---
 
-## 13. Validate Streaming Data
+## 13. Run the Streaming Pipeline
+
+The streaming pipeline needs two terminals.
+
+---
+
+### Terminal 1 — Kafka Consumer
+
+```powershell
+cd C:\Users\DYNABOOK\etl-final-project
+.\.venv\Scripts\Activate.ps1
+python scripts/kafka_consumer.py
+```
+
+Leave this terminal open.
+
+The consumer waits for events from the Kafka topic.
+
+---
+
+### Terminal 2 — Kafka Producer
+
+```powershell
+cd C:\Users\DYNABOOK\etl-final-project
+.\.venv\Scripts\Activate.ps1
+python scripts/kafka_producer.py
+```
+
+The producer sends simulated live sales events to the Redpanda topic.
+
+---
+
+## 14. Validate Real-Time Metrics
+
+Open PostgreSQL:
 
 ```powershell
 docker exec -it etl_postgres psql -U etl_user -d etl_sales_db
 ```
 
+Run:
+
 ```sql
--- Row counts
-SELECT COUNT(*) FROM raw.sales_stream;
-SELECT COUNT(*) FROM analytics.realtime_sales_metrics;
-
--- Latest streaming sales
-SELECT sale_id, product_id, store_id, quantity, total_amount, payment_method, sale_timestamp
-FROM raw.sales_stream
-ORDER BY ingestion_timestamp DESC
-LIMIT 10;
-
--- Real-time metrics
-SELECT metric_timestamp, total_revenue, total_orders, average_basket
+SELECT *
 FROM analytics.realtime_sales_metrics
 ORDER BY metric_timestamp DESC
-LIMIT 10;
+LIMIT 5;
+```
 
+You can also check the latest streaming sales:
+
+```sql
+SELECT *
+FROM raw.sales_stream
+ORDER BY sale_timestamp DESC
+LIMIT 5;
+```
+
+Exit:
+
+```sql
 \q
 ```
 
 ---
 
-## 14. Run the Streamlit Dashboard
+## 15. Launch Streamlit Dashboard
+
+Run:
 
 ```powershell
-streamlit run dashboard\app.py
+streamlit run dashboard/app.py
 ```
 
-Open **http://localhost:8501**
+Open:
 
-The dashboard shows: total revenue, orders, items sold, average basket, revenue by day and city, top products, revenue by category, real-time Kafka metrics and latest streaming sales.
+```txt
+http://localhost:8501
+```
 
-To refresh data manually, click **Rafraîchir maintenant**.
+The dashboard displays:
+
+```txt
+Total revenue
+Number of orders
+Items sold
+Average basket
+Revenue by day
+Orders by day
+Revenue by city
+Top products
+Product categories
+Real-time Kafka metrics
+Latest streaming sales
+```
 
 ---
 
-## 15. Stop the Project
+## 16. Full Local Demo Order
 
-Stop containers (keeps PostgreSQL data):
+For a complete demo from scratch:
+
+```powershell
+cd C:\Users\DYNABOOK\etl-final-project
+.\.venv\Scripts\Activate.ps1
+docker compose up -d
+docker ps
+docker exec -it etl_redpanda rpk topic create sales_stream
+python scripts/test_db_connection.py
+python scripts/run_batch_pipeline.py
+streamlit run dashboard/app.py
+```
+
+For streaming, use two extra terminals:
+
+Terminal 1:
+
+```powershell
+python scripts/kafka_consumer.py
+```
+
+Terminal 2:
+
+```powershell
+python scripts/kafka_producer.py
+```
+
+---
+
+## 17. Stop the Project
+
+To stop all containers:
 
 ```powershell
 docker compose down
 ```
 
-Stop containers and delete all data:
+To stop and delete volumes:
 
 ```powershell
 docker compose down -v
 ```
 
-> ⚠️ `docker compose down -v` permanently deletes the PostgreSQL data volume.
+Warning:
+
+```txt
+docker compose down -v
+```
+
+deletes the PostgreSQL data volume.
+
+Use it only if you want to reset the database.
 
 ---
 
-## 16. Common Issues
+## 18. Common Issues
 
-### Airflow admin login does not work
+### PowerShell blocks venv activation
 
-```powershell
-docker exec -it etl_airflow_webserver airflow users create \
-  --username admin --password admin \
-  --firstname Alhousseynou --lastname Ndiaye \
-  --role Admin --email admin@example.com
-```
-
-To reset an existing user:
+Run:
 
 ```powershell
-docker exec -it etl_airflow_webserver airflow users reset-password --username admin --password admin
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned
 ```
 
-### PowerShell does not support `< sql/file.sql`
+Then:
 
 ```powershell
-Get-Content .\sql\02_staging_to_clean.sql | docker exec -i etl_postgres psql -U etl_user -d etl_sales_db
+.\.venv\Scripts\Activate.ps1
 ```
-
-### Redpanda topic already exists
-
-Not an error — continue normally.
-
-### Dashboard does not show real-time data
-
-Start the consumer first, then the producer, then click the refresh button in Streamlit.
 
 ---
 
-## 17. Demo Checklist
+### Kafka topic already exists
 
-- [ ] Docker containers are running (`docker ps`)
-- [ ] PostgreSQL tables contain data
-- [ ] Airflow DAG is visible and all tasks succeeded
-- [ ] Kafka producer sends messages
-- [ ] Kafka consumer inserts messages into PostgreSQL
-- [ ] Streamlit dashboard shows batch and real-time metrics
-
-**Quick commands:**
+If this command:
 
 ```powershell
-docker ps
-python scripts\run_batch_pipeline.py
-python scripts\kafka_consumer.py
-python scripts\kafka_producer.py
-streamlit run dashboard\app.py
+docker exec -it etl_redpanda rpk topic create sales_stream
+```
+
+returns that the topic already exists, it is fine.
+
+Continue with the next step.
+
+---
+
+### Spark warning on Windows
+
+You may see:
+
+```txt
+Did not find winutils.exe
+Unable to load native-hadoop library
+```
+
+In this local setup, these warnings are not blocking if the job finishes with:
+
+```txt
+Spark transformations loaded into PostgreSQL successfully.
+```
+
+---
+
+### Streamlit does not refresh
+
+Use the refresh button in the dashboard or restart:
+
+```powershell
+streamlit run dashboard/app.py
+```
+
+---
+
+### Airflow page does not load
+
+Restart Airflow:
+
+```powershell
+docker compose restart airflow-webserver airflow-scheduler
+```
+
+Then open:
+
+```txt
+http://localhost:8080
+```
+
+---
+
+## 19. Final Checklist
+
+Before the presentation, verify:
+
+```txt
+Docker containers are running
+PostgreSQL connection works
+Batch pipeline works with PySpark
+Airflow UI is accessible
+Kafka topic exists
+Producer and consumer work
+Realtime metrics are inserted
+Streamlit dashboard opens
+GitHub repository is up to date
+README and SETUP are updated
+Presentation PDF is available
+```
+
+---
+
+## 20. Main Commands Summary
+
+```powershell
+cd C:\Users\DYNABOOK\etl-final-project
+.\.venv\Scripts\Activate.ps1
+docker compose up -d
+python scripts/run_batch_pipeline.py
+streamlit run dashboard/app.py
+```
+
+Streaming:
+
+```powershell
+python scripts/kafka_consumer.py
+```
+
+Then, in another terminal:
+
+```powershell
+python scripts/kafka_producer.py
 ```
